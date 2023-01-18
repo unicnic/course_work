@@ -3,13 +3,12 @@ import json
 import time
 from progress.bar import IncrementalBar
 from datetime import datetime
-#from settings import TOKEN
-#from settings import TOKEN_YA
+from settings import TOKEN
 
 
 class YaUploader:
     host = 'https://cloud-api.yandex.net'
-    def __init__(self, token: str):
+    def __init__(self, token:str):
         self.token = token
 
     def get_headers(self):
@@ -45,30 +44,71 @@ class YaUploader:
         bar.next()
         time.sleep(1)
 
-if __name__ == '__main__':
-    photos_dict = {}
-    size_dict = {'s': 1, 'm': 2, 'o': 3, 'p': 4, 'q': 5, 'r': 6, 'x': 7, 'y': 8, 'z': 9, 'w': 10}
-    user_id = input('Введите id пользователя vk: ')
+
+class VKLoad:
+    host = 'https://api.vk.com/method/'
+
+    def __init__(self, token:str):
+        self.token = token
+        self.params = {
+            'access_token' : token,
+            'v' : '5.131',
+        }
+
+    def get_all_foto_dict(self, user_id, count_img=5):
+        url = self.host + 'photos.getAll'
+        self.params['owner_id'] = user_id
+        self.params['count'] = count_img
+        self.params['extended'] = '1'
+        self.params['photo_sizes'] = '1'
+        response = requests.get(url, params=self.params)
+
+        return response.json()
+
+    def find_max_img(self, photos_json):
+        photos_dict = {}
+        size_dict = {'s': 1, 'm': 2, 'o': 3, 'p': 4, 'q': 5, 'r': 6, 'x': 7, 'y': 8, 'z': 9, 'w': 10}
+        for items in photos_json['response']['items']:
+            if items['likes']['count'] not in photos_dict.keys():
+                file_url = max(items['sizes'], key=lambda x: size_dict[x["type"]])
+                photos_dict[items['likes']['count']] = [file_url['url'], file_url['type']]
+            else:
+                photos_dict[f"{items['likes']['count']}_{datetime.fromtimestamp(items['date']).date()}"] = [
+                    file_url['url'], file_url['type']]
+
+        return photos_dict
+
+    def get_user_id(self, screen_name):
+        url = self.host + 'utils.resolveScreenName'
+        self.params['screen_name'] = screen_name
+        response = requests.get(url, params=self.params)
+
+        return response.json()['response']['object_id']
+
+
+def input_data():
+    user = input('Введите пользователя vk (id или screen_name): ')
+    try:
+        user_id = int(user)
+    except ValueError:
+        user_id = vk_loader.get_user_id(user)
+
+    count_img = input('Введите количество фото для скачивания (5 по умолчанию): ')
+    try:
+        count_img = int(count_img)
+    except ValueError:
+        count_img = 5
+
     TOKEN_YA = input('Введите token Полигона Яндекс.Диска: ')
-    uploader = YaUploader(TOKEN_YA)
-    uploader.create_folder(user_id)
-    url = 'https://api.vk.com/method/photos.getAll'
-    params = {
-        'owner_id' : user_id,
-        'access_token' : TOKEN,
-        'v' : '5.131',
-        'count' : 5,
-        'extended' : '1',
-        'photo_sizes' : '1'
-    }
-    bar = IncrementalBar('Countdown', max=params['count'])
-    response = requests.get(url, params=params)
-    photos_json = response.json()
-    for items in photos_json['response']['items']:
-        if items['likes']['count'] not in photos_dict.keys():
-            file_url = max(items['sizes'], key = lambda x: size_dict[x["type"]])
-            photos_dict[items['likes']['count']] = [file_url['url'], file_url['type']]
-        else:
-            photos_dict[f"{items['likes']['count']}_{datetime.fromtimestamp(items['date']).date()}"] = [file_url['url'], file_url['type']]
-    uploader.upload_photos(photos_dict, user_id)
+
+    return [user, user_id, count_img, TOKEN_YA]
+
+
+if __name__ == '__main__':
+    vk_loader = VKLoad(TOKEN)
+    data = input_data()
+    uploader = YaUploader(data[3])
+    uploader.create_folder(data[0])
+    bar = IncrementalBar('Countdown', max=data[2])
+    uploader.upload_photos(vk_loader.find_max_img(vk_loader.get_all_foto_dict(data[1], data[2])), data[0])
     bar.finish()
